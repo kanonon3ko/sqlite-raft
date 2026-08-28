@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package sqlraft.v1;
+
+option go_package = "github.com/kanonon3ko/sqlite-raft/gen/sqlraftpb";
+
+// SqlRaft 是客户端 API：把 SQL 变成强一致的分布式执行。
+// 写操作（Execute）只会被 Leader 接受，并被复制到多数派节点提交后才返回。
+service SqlRaft {
+  // Execute 提交一条写语句（或一个多语句事务），提交成功后返回执行结果。
+  // Leader 在写入日志前会把 NOW()/RANDOM() 等非确定性调用改写为字面量。
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  // Query 执行一次查询。strong=true 时要求线性一致读（M0 由 Leader 应答，
+  // 后续版本用 ReadIndex 严格化）；strong=false 时返回本地副本的即时结果。
+  rpc Query(QueryRequest) returns (QueryResponse);
+}
+
+message ExecuteRequest {
+  string sql = 1;                 // 要执行的写语句（INSERT/UPDATE/DELETE/DDL）
+  repeated Value params = 2;      // 参数化语句的参数
+  bool tx = 3;                    // true 表示多语句事务（整段作为一条日志条目复制）
+  repeated string statements = 4; // tx=true 时的语句列表
+}
+
+message ExecuteResponse {
+  int64 rows_affected = 1;   // 受影响行数
+  int64 last_insert_id = 2;  // 最近一次插入的自增 ID
+  uint64 commit_index = 3;   // 本次写入提交后的 commit index（便于观测）
+  int32 leader_id = 4;       // 实际执行该写操作的 Leader 节点
+  string error = 5;          // 非空表示失败（如 NOT_LEADER 时携带 leader_id 供客户端重定向）
+}
+
+message QueryRequest {
+  string sql = 1;
+  repeated Value params = 2;
+  bool strong = 3; // true=线性一致读（由 Leader 应答），false=本地读
+}
+
+message QueryResponse {
+  repeated Column columns = 1;
+  repeated Row rows = 2;
+  int32 leader_id = 3;       // 应答本查询的节点
+  bool served_by_leader = 4; // 是否由 Leader 应答
+  string error = 5;          // 非空表示失败
+}
+
+message Column {
+  string name = 1;
+  string type = 2; // SQLite 返回的类型名（TEXT/INTEGER/REAL/BLOB/NULL）
+}
+
+message Row {
+  repeated Value values = 1;
+}
+
+// Value 是参数与结果值的通用表示。
+message Value {
+  oneof kind {
+    string s = 1;
+    int64 i = 2;
+    double f = 3;
+    bool b = 4;
+    bytes by = 5;
+    Null null = 6;
+  }
+}
+
+message Null {}
+
+// Admin 是集群管理接口：成员变更与状态查询。
+service Admin {
+  rpc AddPeer(AddPeerRequest) returns (AddPeerResponse);
+  rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse);
+  rpc ClusterStatus(ClusterStatusRequest) returns (ClusterStatusResponse);
+}
+
+message AddPeerRequest {
+  int32 node_id = 1;
+  string addr = 2;
+}
+
+message AddPeerResponse {
+  bool ok = 1;
+  string error = 2; // 非空表示失败（如 NOT_LEADER）
+  int32 leader_id = 3;
+}
+
+message RemovePeerRequest {
+  int32 node_id = 1;
+}
+
+message RemovePeerResponse {
+  bool ok = 1;
+  string error = 2;
+  int32 leader_id = 3;
+}
+
+message ClusterStatusRequest {}
+
+message ClusterStatusResponse {
+  int32 node_id = 1;     // 应答节点
+  int32 leader_id = 2;   // 当前已知 Leader
+  string state = 3;      // follower / candidate / leader
+  map<int32, string> peers = 4; // 当前配置中的节点
+}

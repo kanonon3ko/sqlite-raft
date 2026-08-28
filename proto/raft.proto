@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package sqlraft.raft;
+
+import "proto/log.proto";
+
+option go_package = "github.com/kanonon3ko/sqlite-raft/gen/raftpb";
+
+// RaftService 是节点之间的共识 RPC。
+service RaftService {
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse);
+  rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+  // InstallSnapshot 把 Leader 的状态机快照推送给滞后 follower，
+  // 用于日志已被压缩、无法用 AppendEntries 追赶的场景。
+  rpc InstallSnapshot(InstallSnapshotRequest) returns (InstallSnapshotResponse);
+}
+
+message RequestVoteRequest {
+  int32 from = 1;
+  int32 to = 2;
+  uint64 term = 3;
+  int32 candidate_id = 4;
+  uint64 last_log_index = 5;
+  uint64 last_log_term = 6;
+}
+
+message RequestVoteResponse {
+  int32 from = 1;
+  int32 to = 2;
+  uint64 term = 3;
+  bool granted = 4;
+}
+
+message AppendEntriesRequest {
+  int32 from = 1;
+  int32 to = 2;
+  uint64 term = 3;
+  int32 leader_id = 4;
+  uint64 prev_log_index = 5;
+  uint64 prev_log_term = 6;
+  repeated sqlraft.log.LogEntry entries = 7;
+  uint64 leader_commit = 8;
+}
+
+message AppendEntriesResponse {
+  int32 from = 1;
+  int32 to = 2;
+  uint64 term = 3;
+  bool success = 4;
+  uint64 match_index = 5;
+}
+
+message InstallSnapshotRequest {
+  int32 from = 1;
+  int32 to = 2;
+  uint64 term = 3;
+  int32 leader_id = 4;
+  uint64 last_included_index = 5; // 快照覆盖的最后一条日志索引
+  uint64 last_included_term = 6;  // 该索引对应的任期
+  bytes data = 7;                 // 状态机快照（SQLite 文件副本）
+}
+
+message InstallSnapshotResponse {
+  int32 from = 1;
+  int32 to = 2;
+  uint64 term = 3;
+  bool success = 4;
+}

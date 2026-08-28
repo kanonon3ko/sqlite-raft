@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package sqlraft.log;
+
+import "proto/sqlraft.proto";
+
+option go_package = "github.com/kanonon3ko/sqlite-raft/gen/logpb";
+
+// LogEntry 是 Raft 复制日志中的一条记录。
+// 每条日志都携带一个“确定性的命令”：任何节点执行它都必须得到相同结果。
+message LogEntry {
+  uint64 index = 1; // 日志索引（从 1 开始）
+  uint64 term = 2;  // 写入该条日志时的任期
+  DeterministicCommand command = 3;
+}
+
+// DeterministicCommand 是复制日志中的确定性操作。
+message DeterministicCommand {
+  oneof cmd {
+    Exec exec = 1;
+    Noop noop = 2; // 空操作：用于提交上一任期的遗留日志
+    ConfChange conf_change = 3; // 集群配置变更
+  }
+}
+
+// Exec 是一条已经被 Leader“确定性化”的写操作。
+// 写入日志之前，Leader 必须完成以下改写，保证所有节点结果一致：
+//  1. NOW()/CURRENT_TIMESTAMP → now_micros 对应的字面量；
+//  2. RANDOM() 等非确定性函数 → 预先计算好的值；
+//  3. AUTOINCREMENT/序列 → 显式生成 ID 并放入 sequence；
+//  4. 触发器/默认值 → 由执行器保证确定性展开。
+// M1 已实现：internal/rewrite 负责时间/随机函数改写与自增 ID 预分配。
+message Exec {
+  string sql = 1;                  // 改写后的确定性 SQL
+  repeated sqlraft.v1.Value params = 2; // 参数（已确定）
+  int64 now_micros = 3;            // 本命令的统一时间戳（微秒），非确定性时间函数的取值来源
+  map<string, int64> sequence = 4; // 预生成的序列值（表名 -> 起始自增 ID），供审计与客户端使用
+}
+
+message Noop {}
+
+// ConfChange 是集群成员变更命令（单节点变更：一次只增删一个节点）。
+message ConfChange {
+  enum Type {
+    ADD = 0;
+    REMOVE = 1;
+  }
+  Type type = 1;
+  int32 node_id = 2;
+  string addr = 3; // ADD 时的新节点地址
+}
