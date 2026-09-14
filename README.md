@@ -1,4 +1,4 @@
-# sqlraft — SQLite over Raft
+# SQLite over Raft
 
 [![CI](https://github.com/kanonon3ko/sqlite-raft/actions/workflows/ci.yml/badge.svg)](https://github.com/kanonon3ko/sqlite-raft/actions)
 [![Go](https://img.shields.io/badge/Go-1.25-blue)](https://go.dev/dl/)
